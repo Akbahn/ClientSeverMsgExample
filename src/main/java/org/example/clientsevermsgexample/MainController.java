@@ -1,13 +1,9 @@
 package org.example.clientsevermsgexample;
 
-
-
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
-import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
 import javafx.scene.Group;
-import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.stage.Stage;
@@ -24,6 +20,13 @@ import java.util.ResourceBundle;
 import static java.lang.Thread.sleep;
 
 public class MainController implements Initializable {
+    private ServerSocket serverSocket;
+    private Socket clientSocket;
+    private DataOutputStream serverOut;
+    private DataInputStream serverIn;
+    private DataOutputStream clientOut;
+    private DataInputStream clientIn;
+
     @FXML
     private ComboBox dropdownPort;
 
@@ -35,15 +38,14 @@ public class MainController implements Initializable {
                 "23",     // telnet
                 "71",     // finger
                 "80",     // http
-                "119",     // nntp (news)
-                "161"      // snmp);
+                "119",    // nntp (news)
+                "161",    // snmp
+                "6666"    // local host);
         );
     }
 
     @FXML
     private Button clearBtn;
-
-
 
     @FXML
     private TextArea resultArea;
@@ -70,7 +72,6 @@ public class MainController implements Initializable {
 
         String host = urlName.getText();
         int port = Integer.parseInt(dropdownPort.getValue().toString());
-
         try {
             Socket sock = new Socket(host, port);
             resultArea.appendText(host + " listening on port " + port + "\n");
@@ -82,19 +83,13 @@ public class MainController implements Initializable {
             resultArea.appendText(host + " not listening on port "
                     + port + "\n");
         }
-
-
     }
-
 
     @FXML
     void clearBtn(ActionEvent event) {
         resultArea.setText("");
         urlName.setText("");
-
     }
-
-
 
     @FXML
     void startServer(ActionEvent event) {
@@ -107,60 +102,54 @@ public class MainController implements Initializable {
         lb12 = new Label("info");
         lb12.setLayoutX(100);
         lb12.setLayoutY(200);
-        root.getChildren().addAll(lb11, lb12);
+
+        TextField serverMsgField = new TextField();
+        serverMsgField.setLayoutX(100);
+        serverMsgField.setLayoutY(250);
+
+        Button sendBtn = new Button("Send");
+        sendBtn.setLayoutX(250);
+        sendBtn.setLayoutY(250);
+        sendBtn.setOnAction(e -> {
+            try {
+                String msg = serverMsgField.getText();
+                if (serverOut != null) {
+                    serverOut.writeUTF(msg);
+                    updateServer("Sent to client: " + msg);
+                }
+            } catch (IOException ex) {
+                updateServer("Error sending: " + ex.getMessage());
+            }
+        });
+
+        root.getChildren().addAll(lb11, lb12, serverMsgField, sendBtn);
         Scene scene = new Scene(root, 600, 350);
         stage.setScene(scene);
-        lb12.setText("Server is running and waiting for a client...");
-
         stage.setTitle("Server");
         stage.show();
 
-
         new Thread(this::runServer).start();
-
     }
-
     String message;
 
     private void runServer() {
         try {
+            serverSocket = new ServerSocket(6666);
+            updateServer("Server waiting for client...");
 
-            ServerSocket serverSocket = new ServerSocket(6666);
-            updateServer("Server is running and waiting for a client...");
-            while (true) { // Infinite loop
-                try {
-                    Socket clientSocket = serverSocket.accept();
-                    updateServer("Client connected!");
+            clientSocket = serverSocket.accept();
+            updateServer("Client connected!");
 
-                    new Thread(() -> {
-                        try {
-                            sleep(3000);
-                        } catch (InterruptedException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-                    DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
-                    DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream());
+            serverIn = new DataInputStream(clientSocket.getInputStream());
+            serverOut = new DataOutputStream(clientSocket.getOutputStream());
 
-                    message = dis.readUTF();
-                    updateServer("Message from client: " + message);
-
-                    // Sending a response back to the client
-                    dos.writeUTF("Received: " + message);
-
-                    dis.close();
-                    dos.close();
-
-                } catch (IOException e) {
-                    updateServer("Error: " + e.getMessage());
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-                if (message.equalsIgnoreCase("exit")) break;
-
+            while (true) {
+                String msg = serverIn.readUTF();
+                updateServer("Client: " + msg);
             }
+
         } catch (IOException e) {
-            updateServer("Error: " + e.getMessage());
+            updateServer("Server error: " + e.getMessage());
         }
     }
 
@@ -174,55 +163,61 @@ public class MainController implements Initializable {
     void startClient(ActionEvent event) {
         Stage stage = new Stage();
         Group root = new Group();
-        Button connectButton = new Button("Connect to server");
-        connectButton.setLayoutX(100);
-        connectButton.setLayoutY(300);
-        connectButton.setOnAction(this::connectToServer);
-        // new Thread(this::connectToServer).start();
 
         Label lb11 = new Label("Client");
         lb11.setLayoutX(100);
         lb11.setLayoutY(100);
-        msgText = new TextField("msg");
+
+        msgText = new TextField();
         msgText.setLayoutX(100);
         msgText.setLayoutY(150);
+
+        Button sendBtn = new Button("Send");
+        sendBtn.setLayoutX(250);
+        sendBtn.setLayoutY(150);
 
         lb122 = new Label("info");
         lb122.setLayoutX(100);
         lb122.setLayoutY(200);
-        root.getChildren().addAll(lb11, lb122, connectButton, msgText);
 
+        sendBtn.setOnAction(e -> {
+            try {
+                if (clientOut != null) {
+                    clientOut.writeUTF(msgText.getText());
+                    updateTextClient("You: " + msgText.getText());
+                }
+            } catch (IOException ex) {
+                updateTextClient("Send error: " + ex.getMessage());
+            }
+        });
 
+        root.getChildren().addAll(lb11, msgText, sendBtn, lb122);
         Scene scene = new Scene(root, 600, 350);
         stage.setScene(scene);
         stage.setTitle("Client");
         stage.show();
 
-
+        new Thread(this::connectToServer).start();
     }
 
 
-    private void connectToServer(ActionEvent event) {
 
-
+    private void connectToServer() {
         try {
             socket1 = new Socket("localhost", 6666);
+            clientOut = new DataOutputStream(socket1.getOutputStream());
+            clientIn = new DataInputStream(socket1.getInputStream());
 
-            DataOutputStream dos = new DataOutputStream(socket1.getOutputStream());
-            DataInputStream dis = new DataInputStream(socket1.getInputStream());
+            updateTextClient("Connected to server.");
 
-            dos.writeUTF(msgText.getText());
-            String response = dis.readUTF();
-            updateTextClient("Server response: " + response + "\n");
+            while (true) {
+                String msg = clientIn.readUTF();
+                updateTextClient("Server: " + msg);
+            }
 
-            dis.close();
-            dos.close();
-            socket1.close();
-        } catch (Exception e) {
-            updateTextClient("Error: " + e.getMessage() + "\n");
+        } catch (IOException e) {
+            updateTextClient("Connection error: " + e.getMessage());
         }
-
-
     }
 
     private void updateTextClient(String message) {
